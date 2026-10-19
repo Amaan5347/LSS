@@ -1,15 +1,15 @@
 // ==UserScript==
 // @name         LSS-Helfer
 // @namespace    lss-helfer
-// @version      0.3.0
-// @description  Einsatzliste, Sprechwunsch-Helfer (flackerfrei), LSS-weite Aktionen
+// @version      0.3.1
+// @description  Einsatzliste, Sprechwunsch-Helfer (flackerfrei, auto-hide), LSS-weite Aktionen
 // @author       Du
 // @match        https://www.leitstellenspiel.de/*
 // @grant        none
 // @run-at       document-idle
 // ==/UserScript==
 
-// Version: v0.3.0
+// Version: v0.3.1
 
 (function () {
     'use strict';
@@ -21,6 +21,7 @@
         accent: '#b8862b', accentText: '#16140f',
         radius: '3px', font: '12px',
         fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+        mono: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
     };
 
     const ICON_CDN = 'https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.48.0/dist/tabler-icons.min.css';
@@ -38,6 +39,7 @@
         s.textContent = `
             @keyframes lsh-fade-in { from { opacity:0; transform: translate(-50%, -45%);} to {opacity:1; transform: translate(-50%, -50%);} }
             @keyframes lsh-slide-in { from { transform: translateX(-8px); opacity:0;} to {transform: translateX(0);opacity:1;} }
+            .lsh-tpl-code { background: #2a2620; color: ${DESIGN.accent}; padding: 1px 5px; border-radius: 2px; font-family: ${DESIGN.mono}; font-size: 10px; border: 1px solid ${DESIGN.border}; display: inline-block; margin: 1px; }
         `;
         document.head.appendChild(s);
     }
@@ -45,17 +47,13 @@
     // ===== STORE =====
     const MODULES_KEY = 'lssHelfer.modules';
     const FEATURES_KEY = 'lssHelfer.features';
-    const AKTION_STATE_KEY = 'lssHelfer.aktionState';
+    const AKTION_STATE_KEY = 'lssHelfer.aktionState.v2';
     const Store = {
         loadModules() { try { return JSON.parse(localStorage.getItem(MODULES_KEY)) || {}; } catch { return {}; } },
         setModuleActive(id, active) { const s = this.loadModules(); s[id] = !!active; try { localStorage.setItem(MODULES_KEY, JSON.stringify(s)); } catch {} },
         isModuleActive(id) { return !!this.loadModules()[id]; },
-        getFeature(m, f, d) {
-            try { const all = JSON.parse(localStorage.getItem(FEATURES_KEY)) || {}; const s = all[m] || {}; return s[f] !== undefined ? s[f] : d; } catch { return d; }
-        },
-        setFeature(m, f, v) {
-            try { const all = JSON.parse(localStorage.getItem(FEATURES_KEY)) || {}; all[m] = all[m] || {}; all[m][f] = v; localStorage.setItem(FEATURES_KEY, JSON.stringify(all)); } catch {}
-        },
+        getFeature(m, f, d) { try { const all = JSON.parse(localStorage.getItem(FEATURES_KEY)) || {}; const s = all[m] || {}; return s[f] !== undefined ? s[f] : d; } catch { return d; } },
+        setFeature(m, f, v) { try { const all = JSON.parse(localStorage.getItem(FEATURES_KEY)) || {}; all[m] = all[m] || {}; all[m][f] = v; localStorage.setItem(FEATURES_KEY, JSON.stringify(all)); } catch {} },
         loadAktionState() { try { return JSON.parse(localStorage.getItem(AKTION_STATE_KEY)) || {}; } catch { return {}; } },
         saveAktionState(st) { try { localStorage.setItem(AKTION_STATE_KEY, JSON.stringify(st)); } catch {} },
     };
@@ -88,23 +86,41 @@
         const csrf = getCsrf();
         const params = new URLSearchParams(data);
         if (csrf) params.set('authenticity_token', csrf);
-        return fetch(url, {
-            method: 'POST',
-            credentials: 'same-origin',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: params.toString(),
-        });
+        return fetch(url, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: params.toString() });
     }
-    function applyTemplate(tpl, vars) {
-        return tpl.replace(/\{(\w+)\}/g, (m, key) => vars[key] !== undefined ? vars[key] : m);
-    }
+    function applyTemplate(tpl, vars) { return tpl.replace(/\{(\w+)\}/g, (m, key) => vars[key] !== undefined && vars[key] !== null ? String(vars[key]) : m); }
+
     const BUILDING_TYPE_SHORT = {
-        0:'FW', 1:'FW-Schule', 2:'RW', 3:'RS', 4:'KH', 5:'RTH', 6:'Pol',
-        7:'LST', 8:'Pol-Schule', 9:'THW', 10:'THW-Schule', 11:'BePo',
-        12:'SEG', 13:'PolHubschr', 15:'WR', 17:'PolSE', 18:'SEG-Bergwacht',
-        20:'BRW', 21:'RHS', 24:'WR-Seenot', 25:'BRW', 26:'SRW',
-        27:'Seenot-Hubschr', 28:'Seenot-Hubschr', 29:'Autobahnpol',
+        0:'Feuerwache', 1:'FW-Schule', 2:'Rettungswache', 3:'RS', 4:'Krankenhaus', 5:'RTH-Station', 6:'Polizeiwache',
+        7:'Leitstelle', 8:'Pol-Schule', 9:'THW', 10:'THW-Schule', 11:'BePo',
+        12:'SEG', 13:'PolHubschr', 15:'Wasserrettung', 17:'PolSE', 18:'SEG Bergwacht',
+        20:'Bergrettungswache', 21:'RHS', 24:'Wasserrettung Seenot', 25:'Bergrettungswache', 26:'Seenotrettungswache',
+        27:'Seenot-Hubschr', 28:'Seenot-Hubschr', 29:'Autobahnpolizei',
     };
+    const TYPE_WORDS = new Set(['fw','feuerwache','fw-schule','rw','rettungswache','rs','kh','krankenhaus','thw','thw-schule','pol','polizei','polizeiwache','lst','leitstelle','seg','bepo','bereitschaftspolizei','wache','schule','feuerwehrschule','rettungsschule','polizeischule','bundesschule','hubschrauber','rth','rth-station','polizeihubschrauber','wasserrettung','bergrettung','bergrettungswache','seenotrettung','seenotrettungswache','autobahnpolizei','polse','sew','nord','sued','ost','west','mitte']);
+    const CITY_ABBREV = {
+        'hamburg':'HH','berlin':'B','muenchen':'M','münchen':'M','koeln':'K','köln':'K','frankfurt':'F','stuttgart':'S',
+        'duesseldorf':'D','düsseldorf':'D','leipzig':'L','dresden':'DD','hannover':'H','bremen':'HB','nuernberg':'N','nürnberg':'N',
+        'dortmund':'DO','essen':'E','bonn':'BN','muenster':'MS','münster':'MS','karlsruhe':'KA','freiburg':'FR',
+        'mainz':'MZ','wiesbaden':'WI','kiel':'KI','luebeck':'HL','lübeck':'HL','rostock':'HRO','magdeburg':'MD',
+        'erfurt':'EF','jena':'J','halle':'HAL','augsburg':'A','regensburg':'R','wuerzburg':'WÜ','würzburg':'WÜ',
+        'krefeld':'KR','moenchengladbach':'MG','mönchengladbach':'MG','oberhausen':'OB','braunschweig':'BS',
+        'chemnitz':'C','aachen':'AC','hagen':'HA','saarbruecken':'SB','saarbrücken':'SB','potsdam':'P','ulm':'UL',
+    };
+
+    function extractCity(buildingName) {
+        if (!buildingName) return '';
+        const parts = String(buildingName).split(/[\s\-_]+/);
+        const candidates = parts.filter(p => p.length > 1 && !/^\d+$/.test(p) && !TYPE_WORDS.has(p.toLowerCase()));
+        return candidates.length > 0 ? candidates[0] : '';
+    }
+    function abbrevCity(city) {
+        if (!city) return '';
+        const lower = city.toLowerCase();
+        if (CITY_ABBREV[lower]) return CITY_ABBREV[lower];
+        return city.substring(0, 2).toUpperCase();
+    }
+
     function findCol(el) {
         let cur = el;
         while (cur) { if (cur.className && /\bcol-(xs|sm|md|lg)-\d+\b/.test(cur.className)) return cur; cur = cur.parentElement; }
@@ -177,6 +193,7 @@
             if (!panels.settings) { panels.settings = buildShell('lss-helfer-settings-panel', 'Einstellungen'); renderSettings(); }
             panels.settings.style.display = 'flex';
         } else if (which === 'actions') {
+            if (!Store.isModuleActive('lss-weite-aktionen')) return;
             AktionenModule.open();
         }
     }
@@ -233,10 +250,18 @@
     // ===== DROPDOWN =====
     let dropdownEl = null, navAnchorEl = null;
     function buildDropdown() {
+        if (dropdownEl) { dropdownEl.remove(); dropdownEl = null; }
         const dd = document.createElement('div');
         dd.id = 'lss-helfer-dropdown';
         dd.style.cssText = `position:absolute;display:none;background:${DESIGN.panel};border:1px solid ${DESIGN.border};border-radius:${DESIGN.radius};min-width:180px;z-index:10000;box-shadow:0 6px 20px rgba(0,0,0,.55);font-family:${DESIGN.fontFamily};font-size:${DESIGN.font};color:${DESIGN.text};overflow:hidden;`;
-        [{id:'module',icon:'ti-layout-grid',label:'Module'},{id:'settings',icon:'ti-adjustments',label:'Einstellungen'},{id:'actions',icon:'ti-bolt',label:'Aktionen'}].forEach(it => {
+        const items = [
+            { id: 'module', icon: 'ti-layout-grid', label: 'Module' },
+            { id: 'settings', icon: 'ti-adjustments', label: 'Einstellungen' },
+        ];
+        if (Store.isModuleActive('lss-weite-aktionen')) {
+            items.push({ id: 'actions', icon: 'ti-bolt', label: 'Aktionen' });
+        }
+        items.forEach(it => {
             const row = document.createElement('div');
             row.style.cssText = `padding:9px 12px;cursor:pointer;display:flex;align-items:center;gap:8px;`;
             row.innerHTML = `<i class="ti ${it.icon}" style="color:${DESIGN.accent};"></i><span>${it.label}</span>`;
@@ -245,17 +270,21 @@
             row.addEventListener('click', () => { hideDropdown(); openPanel(it.id); });
             dd.appendChild(row);
         });
-        document.body.appendChild(dd); return dd;
+        document.body.appendChild(dd);
+        return dd;
     }
     function showDropdown(a) {
-        if (!dropdownEl) dropdownEl = buildDropdown();
+        dropdownEl = buildDropdown();
         const r = a.getBoundingClientRect();
         dropdownEl.style.left = (r.right + window.scrollX - 180) + 'px';
         dropdownEl.style.top = (r.bottom + window.scrollY + 4) + 'px';
         dropdownEl.style.display = 'block';
     }
     function hideDropdown() { if (dropdownEl) dropdownEl.style.display = 'none'; }
-    function toggleDropdown(a) { if (!dropdownEl) dropdownEl = buildDropdown(); if (dropdownEl.style.display === 'block') hideDropdown(); else showDropdown(a); }
+    function toggleDropdown(a) {
+        if (dropdownEl && dropdownEl.style.display === 'block') { hideDropdown(); return; }
+        showDropdown(a);
+    }
 
     function addNavbarEntry() {
         let targetUl = null;
@@ -300,7 +329,7 @@
         description: 'Karte ausblenden, Credits, eigene Beteiligung',
         icon: 'ti-list-details',
         observer: null, localTimer: null, apiTimer: null,
-        vehiclesByMission: new Map(), vehiclesPromise: null, lastFetch: 0,
+        vehiclesByMission: new Map(), vehiclesPromise: null,
         isFeatureEnabled(f) { const x = MISSION_FEATURES.find(a => a.id === f); return Store.getFeature(this.id, f, x ? x.default : false); },
         setFeature(f, v) { Store.setFeature(this.id, f, v); if (Store.isModuleActive(this.id)) this.applyAll(); },
         onActivate() { this.applyAll(); this.startObserver(); this.startLocalTick(); this.startApiTick(); this.refreshVehicles(); },
@@ -380,7 +409,6 @@
                     }
                 } catch (e) { console.warn('[LSS-Helfer] Fahrzeug-Abfrage fehlgeschlagen.', e); }
                 this.vehiclesByMission = map;
-                this.lastFetch = Date.now();
                 this.vehiclesPromise = null;
                 if (Store.isModuleActive(this.id)) this.applyBadges();
             })();
@@ -420,19 +448,19 @@
         },
     };
 
-    // ===== MODUL: Sprechwunsch-Helfer (diff-basiert, kein Flackern) =====
+    // ===== MODUL: Sprechwunsch-Helfer (flackerfrei + auto-hide) =====
     const SprechModule = {
         id: 'sprechwunsch-helfer',
         name: 'Sprechwunsch-Helfer',
         description: 'Offene Sprechwünsche, Senden zum nächsten Ziel',
         icon: 'ti-urgent',
         pollTimer: null,
-        popupEl: null,
-        listEl: null, countEl: null, moreEl: null, emptyEl: null,
-        rowEls: new Map(),  // key -> { el, nameEl, nameHash }
+        popupEl: null, listEl: null, countEl: null, moreEl: null, emptyEl: null,
+        rowEls: new Map(),
         seen: new Map(),
         sent: new Map(),
         isHover: false,
+        visible: false,
 
         onActivate() {
             this.seen.clear(); this.sent.clear(); this.rowEls.clear();
@@ -444,12 +472,13 @@
             if (this.pollTimer) { clearInterval(this.pollTimer); this.pollTimer = null; }
             if (this.popupEl) { this.popupEl.remove(); this.popupEl = null; }
             this.rowEls.clear(); this.seen.clear(); this.sent.clear();
+            this.visible = false;
         },
         buildPopup() {
             if (this.popupEl) return;
             const el = document.createElement('div');
             el.id = 'lss-helfer-sprech-popup';
-            el.style.cssText = `position:fixed;top:20px;left:20px;z-index:9998;background:${DESIGN.panel};border:1px solid ${DESIGN.border};border-radius:${DESIGN.radius};padding:10px;width:270px;font-family:${DESIGN.fontFamily};font-size:11px;color:${DESIGN.text};box-shadow:0 4px 14px rgba(0,0,0,.5);opacity:.5;transition:opacity .2s;display:block;`;
+            el.style.cssText = `position:fixed;top:20px;left:20px;z-index:9998;background:${DESIGN.panel};border:1px solid ${DESIGN.border};border-radius:${DESIGN.radius};padding:10px;width:270px;font-family:${DESIGN.fontFamily};font-size:11px;color:${DESIGN.text};box-shadow:0 4px 14px rgba(0,0,0,.5);opacity:.5;transition:opacity .2s;display:none;`;
             el.addEventListener('mouseenter', () => { el.style.opacity = '1'; this.isHover = true; });
             el.addEventListener('mouseleave', () => { el.style.opacity = '.5'; this.isHover = false; this.poll(); });
             const head = document.createElement('div');
@@ -460,11 +489,6 @@
             list.className = 'lsh-list';
             list.style.cssText = `display:flex;flex-direction:column;gap:6px;`;
             el.appendChild(list);
-            const empty = document.createElement('div');
-            empty.className = 'lsh-empty';
-            empty.style.cssText = `text-align:center;padding:10px 0;color:${DESIGN.textDim};font-style:italic;display:none;`;
-            empty.textContent = 'Keine offenen Sprechwünsche';
-            el.appendChild(empty);
             const more = document.createElement('div');
             more.className = 'lsh-more';
             more.style.cssText = `margin-top:6px;text-align:center;font-size:10px;color:${DESIGN.textDim};display:none;`;
@@ -473,7 +497,6 @@
             this.popupEl = el;
             this.listEl = list;
             this.countEl = head.querySelector('.lsh-count');
-            this.emptyEl = empty;
             this.moreEl = more;
         },
         findRadioEntries() {
@@ -544,26 +567,24 @@
             const countStr = String(items.length);
             if (this.countEl.textContent !== countStr) this.countEl.textContent = countStr;
 
-            if (this.isHover) return; // Rendering pausiert bei Hover
-
-            if (items.length === 0) {
-                if (this.emptyEl.style.display !== 'block') this.emptyEl.style.display = 'block';
-                if (this.moreEl.style.display !== 'none') this.moreEl.style.display = 'none';
+            // Auto-Hide: Wenn nichts da, Popup unsichtbar machen (außer Hover)
+            if (items.length === 0 && !this.isHover) {
+                if (this.visible) { this.popupEl.style.display = 'none'; this.visible = false; }
                 for (const [, rowData] of this.rowEls) rowData.el.remove();
                 this.rowEls.clear();
                 return;
             }
-            if (this.emptyEl.style.display !== 'none') this.emptyEl.style.display = 'none';
+            if (!this.visible) { this.popupEl.style.display = 'block'; this.visible = true; }
+
+            if (this.isHover) return;
 
             const visible = items.slice(0, 3);
             const visibleKeys = new Set(visible.map(([k]) => k));
 
-            // Entferne nicht mehr sichtbare Zeilen
             for (const [key, rowData] of Array.from(this.rowEls)) {
                 if (!visibleKeys.has(key)) { rowData.el.remove(); this.rowEls.delete(key); }
             }
 
-            // Füge neue Zeilen hinzu / aktualisiere
             visible.forEach(([key, info], idx) => {
                 let rowData = this.rowEls.get(key);
                 if (!rowData) {
@@ -574,7 +595,6 @@
                     rowData.nameEl.title = info.name;
                     rowData.nameHash = info.name;
                 }
-                // Position sicherstellen
                 const currentIdx = Array.from(this.listEl.children).indexOf(rowData.el);
                 if (currentIdx !== idx) {
                     if (idx >= this.listEl.children.length) this.listEl.appendChild(rowData.el);
@@ -683,29 +703,29 @@
             console.log('Gesamt li-Einträge:', all.length);
             const entries = this.findRadioEntries();
             console.log('Erkannte Sprechwünsche:', entries.length);
-            entries.slice(0, 3).forEach((e, i) => console.log(`#${i+1} vid=${e.vid}`, e.text.substring(0, 100)));
         },
     };
 
-    // ===== MODUL: LSS-weite Aktionen (S5 + V17) =====
+    // ===== MODUL: LSS-weite Aktionen =====
     const AktionenModule = {
         id: 'lss-weite-aktionen',
         name: 'LSS-weite Aktionen',
-        description: 'Wachen umschalten, Werbung, Umbenennen',
+        description: 'Wachentypen umschalten, Werbung global, Umbenennen',
         icon: 'ti-bolt',
         panelEl: null,
         buildings: [],
         buildingsLoaded: false,
-        selected: new Set(),
         activeTab: 'toggle',
         running: false,
         abortFlag: false,
         progressStatus: null,
         progressFill: null,
-        // Einstellungen
+        // Zustand
         toggleTarget: 'off',
-        buildingTemplate: '{typ} {nummer}',
-        vehicleTemplate: '{typ} {nummer}',
+        toggleTypes: new Set(),
+        renameBuildings: new Set(),
+        buildingTemplate: '{typ} {stadt} {nummer}',
+        vehicleTemplate: '{stadtkuerzel} {typ} {nummer}',
         alsoRenameVehicles: true,
 
         onActivate() {},
@@ -726,18 +746,20 @@
         loadState() {
             const st = Store.loadAktionState();
             if (st.toggleTarget) this.toggleTarget = st.toggleTarget;
+            if (Array.isArray(st.toggleTypes)) this.toggleTypes = new Set(st.toggleTypes);
+            if (Array.isArray(st.renameBuildings)) this.renameBuildings = new Set(st.renameBuildings);
             if (st.buildingTemplate !== undefined) this.buildingTemplate = st.buildingTemplate;
             if (st.vehicleTemplate !== undefined) this.vehicleTemplate = st.vehicleTemplate;
             if (st.alsoRenameVehicles !== undefined) this.alsoRenameVehicles = st.alsoRenameVehicles;
-            if (Array.isArray(st.selected)) this.selected = new Set(st.selected);
         },
         saveState() {
             Store.saveAktionState({
                 toggleTarget: this.toggleTarget,
+                toggleTypes: Array.from(this.toggleTypes),
+                renameBuildings: Array.from(this.renameBuildings),
                 buildingTemplate: this.buildingTemplate,
                 vehicleTemplate: this.vehicleTemplate,
                 alsoRenameVehicles: this.alsoRenameVehicles,
-                selected: Array.from(this.selected),
             });
         },
 
@@ -758,7 +780,7 @@
 
             const tabsEl = document.createElement('div');
             tabsEl.style.cssText = `display:flex;gap:4px;margin-bottom:12px;border-bottom:1px solid ${DESIGN.border};padding-bottom:8px;flex-wrap:wrap;`;
-            [{ id: 'toggle', label: 'Wachen umschalten' }, { id: 'hire', label: 'Werbung' }, { id: 'rename', label: 'Umbenennen' }].forEach(t => {
+            [{ id: 'toggle', label: 'Wachentypen umschalten' }, { id: 'hire', label: 'Werbung' }, { id: 'rename', label: 'Umbenennen' }].forEach(t => {
                 const btn = document.createElement('button');
                 btn.textContent = t.label;
                 const active = this.activeTab === t.id;
@@ -790,7 +812,7 @@
             c.appendChild(bar);
             const abort = document.createElement('button');
             abort.textContent = 'Abbrechen';
-            abort.style.cssText = `background:#a14040;color:#fff;border:none;border-radius:${DESIGN.radius};padding:6px 14px;font-size:11px;cursor:pointer;`;
+            abort.style.cssText = `background:#a14040;color:#fff;border:none;border-radius:${DESIGN.radius};padding:6px 14px;font-size:11px;cursor:pointer;font-family:${DESIGN.fontFamily};`;
             abort.addEventListener('click', () => { this.abortFlag = true; });
             c.appendChild(abort);
             body.appendChild(c);
@@ -802,17 +824,17 @@
             if (this.progressFill) this.progressFill.style.width = ((current / total) * 100) + '%';
         },
 
-        // ==== Werkzeug 1: Wachen umschalten ====
+        // ===== Werkzeug 1: Wachentypen umschalten =====
         renderToggle(body) {
             const info = document.createElement('div');
-            info.style.cssText = `color:${DESIGN.textDim};font-size:11px;margin-bottom:10px;`;
-            info.textContent = 'Wachen, die bereits im Zielzustand sind, werden übersprungen (Endpunkt ist nicht idempotent).';
+            info.style.cssText = `color:${DESIGN.textDim};font-size:11px;margin-bottom:10px;line-height:1.4;`;
+            info.textContent = 'Wähle Wachentypen. Alle Wachen des gewählten Typs werden umgeschaltet. Wachen, die bereits im Zielzustand sind, werden übersprungen.';
             body.appendChild(info);
 
             const targetRow = document.createElement('div');
-            targetRow.style.cssText = `display:flex;gap:10px;margin-bottom:12px;align-items:center;`;
+            targetRow.style.cssText = `display:flex;gap:10px;margin-bottom:10px;align-items:center;`;
             targetRow.innerHTML = `<span style="color:${DESIGN.text};font-weight:600;">Ziel:</span>`;
-            [{ v: 'on', l: 'Alle auf aktiv' }, { v: 'off', l: 'Alle auf inaktiv' }].forEach(o => {
+            [{ v: 'on', l: 'Aktivieren' }, { v: 'off', l: 'Deaktivieren' }].forEach(o => {
                 const lab = document.createElement('label');
                 lab.style.cssText = `display:flex;align-items:center;gap:4px;cursor:pointer;color:${DESIGN.textDim};font-size:11px;`;
                 const r = document.createElement('input');
@@ -824,10 +846,65 @@
             });
             body.appendChild(targetRow);
 
-            this.renderBuildingList(body);
+            if (!this.buildingsLoaded) {
+                body.insertAdjacentHTML('beforeend', `<div style="color:${DESIGN.textDim};padding:12px;text-align:center;">Lade Gebäude…</div>`);
+                return;
+            }
+
+            const typeStats = {};
+            this.buildings.forEach(b => {
+                const t = b.building_type;
+                if (!typeStats[t]) typeStats[t] = { total: 0, enabled: 0, disabled: 0 };
+                typeStats[t].total++;
+                if (b.enabled !== false) typeStats[t].enabled++;
+                else typeStats[t].disabled++;
+            });
+
+            const typeList = document.createElement('div');
+            typeList.style.cssText = `background:${DESIGN.bg};border:1px solid ${DESIGN.border};border-radius:${DESIGN.radius};padding:8px;max-height:280px;overflow-y:auto;`;
+
+            const bulkRow = document.createElement('div');
+            bulkRow.style.cssText = `display:flex;gap:4px;margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid ${DESIGN.border};`;
+            [['Alle', () => Object.keys(typeStats).forEach(t => this.toggleTypes.add(parseInt(t)))],
+             ['Keine', () => this.toggleTypes.clear()],
+             ['Invertieren', () => Object.keys(typeStats).forEach(t => { const ti = parseInt(t); if (this.toggleTypes.has(ti)) this.toggleTypes.delete(ti); else this.toggleTypes.add(ti); })]].forEach(([txt, fn]) => {
+                const btn = document.createElement('button');
+                btn.textContent = txt;
+                btn.style.cssText = `font-size:10px;padding:3px 8px;background:transparent;color:${DESIGN.accent};border:1px solid ${DESIGN.border};border-radius:${DESIGN.radius};cursor:pointer;font-family:${DESIGN.fontFamily};`;
+                btn.addEventListener('click', () => { fn(); this.saveState(); this.render(); });
+                bulkRow.appendChild(btn);
+            });
+            typeList.appendChild(bulkRow);
+
+            Object.keys(typeStats).map(Number).sort((a, b) => a - b).forEach(t => {
+                const s = typeStats[t];
+                const checked = this.toggleTypes.has(t);
+                const row = document.createElement('label');
+                row.style.cssText = `display:flex;align-items:center;gap:8px;padding:5px 4px;cursor:pointer;border-bottom:1px solid ${DESIGN.border};`;
+                const cb = document.createElement('input');
+                cb.type = 'checkbox'; cb.checked = checked;
+                cb.addEventListener('change', () => { if (cb.checked) this.toggleTypes.add(t); else this.toggleTypes.delete(t); this.saveState(); });
+                row.appendChild(cb);
+                const nameEl = document.createElement('span');
+                nameEl.style.cssText = `flex:1;color:${DESIGN.text};font-size:11px;`;
+                nameEl.textContent = BUILDING_TYPE_SHORT[t] || ('Typ ' + t);
+                row.appendChild(nameEl);
+                const statEl = document.createElement('span');
+                statEl.style.cssText = `color:${DESIGN.textDim};font-size:10px;`;
+                statEl.textContent = `${s.total} (${s.enabled} aktiv, ${s.disabled} inaktiv)`;
+                row.appendChild(statEl);
+                typeList.appendChild(row);
+            });
+            body.appendChild(typeList);
+
+            const sumRow = document.createElement('div');
+            sumRow.style.cssText = `margin-top:8px;color:${DESIGN.textDim};font-size:11px;`;
+            const totalSelected = Array.from(this.toggleTypes).reduce((acc, t) => acc + (typeStats[t] ? typeStats[t].total : 0), 0);
+            sumRow.textContent = `${this.toggleTypes.size} Typen ausgewählt → ${totalSelected} Wachen betroffen`;
+            body.appendChild(sumRow);
 
             const runRow = document.createElement('div');
-            runRow.style.cssText = `margin-top:12px;display:flex;gap:8px;`;
+            runRow.style.cssText = `margin-top:12px;`;
             const runBtn = document.createElement('button');
             runBtn.textContent = 'Ausführen';
             runBtn.style.cssText = `background:${DESIGN.accent};color:${DESIGN.accentText};border:none;border-radius:${DESIGN.radius};padding:8px 16px;font-size:12px;font-weight:600;cursor:pointer;font-family:${DESIGN.fontFamily};`;
@@ -837,8 +914,8 @@
         },
 
         async runToggle() {
-            const targets = this.buildings.filter(b => this.selected.has(b.id));
             const targetState = this.toggleTarget === 'on';
+            const targets = this.buildings.filter(b => this.toggleTypes.has(b.building_type));
             const toToggle = targets.filter(b => { const isActive = b.enabled !== false; return isActive !== targetState; });
             if (toToggle.length === 0) { centerToast('Alle ausgewählten Wachen bereits im Zielzustand.', false); return; }
             if (!confirm(`${toToggle.length} Wachen ${targetState ? 'aktivieren' : 'deaktivieren'}?`)) return;
@@ -857,27 +934,32 @@
             centerToast(`${ok} umgeschaltet${fail ? ', ' + fail + ' Fehler' : ''}`, fail > 0);
         },
 
-        // ==== Werkzeug 2: Werbung ====
+        // ===== Werkzeug 2: Werbung (global) =====
         renderHire(body) {
+            if (!this.buildingsLoaded) {
+                body.insertAdjacentHTML('beforeend', `<div style="color:${DESIGN.textDim};padding:12px;text-align:center;">Lade Gebäude…</div>`);
+                return;
+            }
             const info = document.createElement('div');
-            info.style.cssText = `color:${DESIGN.textDim};font-size:11px;margin-bottom:10px;`;
-            info.textContent = 'Aktiviert 3 Tage Personalwerbung für alle ausgewählten Wachen. Bereits laufende Werbung wird serverseitig ignoriert.';
+            info.style.cssText = `color:${DESIGN.text};font-size:12px;margin-bottom:12px;line-height:1.5;padding:10px;background:${DESIGN.bg};border:1px solid ${DESIGN.border};border-radius:${DESIGN.radius};`;
+            info.innerHTML = `Aktiviert <b>3 Tage Personalwerbung</b> für <b>alle ${this.buildings.length} Wachen</b>.<br><br>
+                <span style="color:${DESIGN.textDim};font-size:11px;">Bereits laufende Werbung wird serverseitig ignoriert – kein Schaden, kein zusätzlicher Credit-Abzug.</span>`;
             body.appendChild(info);
-            this.renderBuildingList(body);
+
             const runRow = document.createElement('div');
             runRow.style.cssText = `margin-top:12px;`;
             const runBtn = document.createElement('button');
-            runBtn.textContent = 'Werbung aktivieren';
-            runBtn.style.cssText = `background:${DESIGN.accent};color:${DESIGN.accentText};border:none;border-radius:${DESIGN.radius};padding:8px 16px;font-size:12px;font-weight:600;cursor:pointer;font-family:${DESIGN.fontFamily};`;
+            runBtn.textContent = `Werbung für alle ${this.buildings.length} Wachen aktivieren`;
+            runBtn.style.cssText = `background:${DESIGN.accent};color:${DESIGN.accentText};border:none;border-radius:${DESIGN.radius};padding:8px 16px;font-size:12px;font-weight:600;cursor:pointer;font-family:${DESIGN.fontFamily};width:100%;`;
             runBtn.addEventListener('click', () => this.runHire());
             runRow.appendChild(runBtn);
             body.appendChild(runRow);
         },
 
         async runHire() {
-            const targets = this.buildings.filter(b => this.selected.has(b.id));
-            if (targets.length === 0) { centerToast('Keine Wachen ausgewählt.', true); return; }
-            if (!confirm(`3 Tage Werbung für ${targets.length} Wachen aktivieren?`)) return;
+            const targets = this.buildings;
+            if (targets.length === 0) { centerToast('Keine Wachen vorhanden.', true); return; }
+            if (!confirm(`3 Tage Werbung für alle ${targets.length} Wachen aktivieren?`)) return;
             this.running = true; this.abortFlag = false; this.render();
             let ok = 0, fail = 0;
             for (let i = 0; i < targets.length; i++) {
@@ -891,34 +973,31 @@
             centerToast(`${ok} beworben${fail ? ', ' + fail + ' Fehler' : ''}`, fail > 0);
         },
 
-        // ==== Werkzeug 3: Umbenennen ====
+        // ===== Werkzeug 3: Umbenennen =====
         renderRename(body) {
+            const codeSpan = (txt) => `<span class="lsh-tpl-code">${txt}</span>`;
+
             const info = document.createElement('div');
-            info.style.cssText = `color:${DESIGN.textDim};font-size:11px;margin-bottom:10px;line-height:1.4;`;
-            info.innerHTML = `Platzhalter Gebäude: <code>{name}</code> <code>{typ}</code> <code>{nummer}</code> <code>{leitstelle}</code><br>Platzhalter Fahrzeuge: <code>{name}</code> <code>{typ}</code> <code>{nummer}</code> <code>{wache}</code>`;
+            info.style.cssText = `color:${DESIGN.textDim};font-size:11px;margin-bottom:10px;line-height:1.7;`;
+            info.innerHTML = `<b style="color:${DESIGN.text};">Gebäude:</b> ${codeSpan('{typ}')} ${codeSpan('{stadt}')} ${codeSpan('{stadtkuerzel}')} ${codeSpan('{nummer}')} ${codeSpan('{leitstelle}')} ${codeSpan('{alt}')}<br>
+                <b style="color:${DESIGN.text};">Fahrzeuge:</b> ${codeSpan('{typ}')} ${codeSpan('{stadt}')} ${codeSpan('{stadtkuerzel}')} ${codeSpan('{nummer}')} ${codeSpan('{wache}')} ${codeSpan('{alt}')}`;
             body.appendChild(info);
 
             const makeInput = (label, val, cb) => {
                 const row = document.createElement('div');
-                row.style.cssText = `display:flex;align-items:center;gap:8px;margin-bottom:6px;`;
+                row.style.cssText = `display:flex;align-items:center;gap:8px;margin-bottom:8px;`;
                 const l = document.createElement('span');
                 l.textContent = label;
-                l.style.cssText = `width:110px;color:${DESIGN.textDim};font-size:11px;`;
+                l.style.cssText = `width:120px;color:${DESIGN.textDim};font-size:11px;`;
                 const i = document.createElement('input');
                 i.type = 'text'; i.value = val;
-                i.style.cssText = `flex:1;background:${DESIGN.bg};color:${DESIGN.text};border:1px solid ${DESIGN.border};border-radius:${DESIGN.radius};padding:5px 8px;font-size:11px;font-family:${DESIGN.fontFamily};`;
+                i.style.cssText = `flex:1;background:${DESIGN.bg};color:${DESIGN.text};border:1px solid ${DESIGN.border};border-radius:${DESIGN.radius};padding:5px 8px;font-size:11px;font-family:${DESIGN.mono};`;
                 i.addEventListener('input', () => { cb(i.value); this.saveState(); this.updatePreview(); });
                 row.appendChild(l); row.appendChild(i);
-                return { row, input: i };
+                return row;
             };
-
-            const b = makeInput('Gebäude-Muster', this.buildingTemplate, v => this.buildingTemplate = v);
-            body.appendChild(b.row);
-            this._buildingTplInput = b.input;
-
-            const v = makeInput('Fahrzeug-Muster', this.vehicleTemplate, v => this.vehicleTemplate = v);
-            body.appendChild(v.row);
-            this._vehicleTplInput = v.input;
+            body.appendChild(makeInput('Gebäude-Muster', this.buildingTemplate, v => this.buildingTemplate = v));
+            body.appendChild(makeInput('Fahrzeug-Muster', this.vehicleTemplate, v => this.vehicleTemplate = v));
 
             const vRow = document.createElement('label');
             vRow.style.cssText = `display:flex;align-items:center;gap:6px;margin:8px 0;cursor:pointer;color:${DESIGN.textDim};font-size:11px;`;
@@ -926,10 +1005,15 @@
             vCb.type = 'checkbox'; vCb.checked = this.alsoRenameVehicles;
             vCb.addEventListener('change', () => { this.alsoRenameVehicles = vCb.checked; this.saveState(); this.updatePreview(); });
             vRow.appendChild(vCb);
-            vRow.appendChild(document.createTextNode('Fahrzeuge der Wachen ebenfalls umbenennen'));
+            vRow.appendChild(document.createTextNode('Fahrzeuge ebenfalls umbenennen'));
             body.appendChild(vRow);
 
-            this.renderBuildingList(body);
+            if (!this.buildingsLoaded) {
+                body.insertAdjacentHTML('beforeend', `<div style="color:${DESIGN.textDim};padding:12px;text-align:center;">Lade Gebäude…</div>`);
+                return;
+            }
+
+            this.renderBuildingSelector(body);
 
             const previewEl = document.createElement('div');
             previewEl.className = 'lsh-preview';
@@ -949,20 +1033,66 @@
             this.updatePreview();
         },
 
+        renderBuildingSelector(container) {
+            const groups = {};
+            this.buildings.forEach(b => {
+                const lbl = BUILDING_TYPE_SHORT[b.building_type] || ('Typ ' + b.building_type);
+                if (!groups[lbl]) groups[lbl] = [];
+                groups[lbl].push(b);
+            });
+            const wrapper = document.createElement('div');
+            wrapper.style.cssText = `max-height:220px;overflow-y:auto;background:${DESIGN.bg};border:1px solid ${DESIGN.border};border-radius:${DESIGN.radius};padding:8px;`;
+            const selInfo = document.createElement('div');
+            selInfo.style.cssText = `font-weight:600;margin-bottom:6px;color:${DESIGN.text};font-size:11px;`;
+            const updateSelInfo = () => { selInfo.textContent = 'Ausgewählt: ' + this.renameBuildings.size + ' / ' + this.buildings.length; };
+            updateSelInfo();
+            wrapper.appendChild(selInfo);
+
+            Object.keys(groups).sort().forEach(lbl => {
+                const hdr = document.createElement('div');
+                hdr.style.cssText = `display:flex;align-items:center;justify-content:space-between;margin-top:8px;color:${DESIGN.text};font-size:11px;font-weight:600;`;
+                hdr.textContent = `${lbl} (${groups[lbl].length})`;
+                const btns = document.createElement('div');
+                btns.style.cssText = `display:flex;gap:4px;`;
+                [['Alle', () => groups[lbl].forEach(b => this.renameBuildings.add(b.id))],
+                 ['Keine', () => groups[lbl].forEach(b => this.renameBuildings.delete(b.id))]].forEach(([txt, fn]) => {
+                    const btn = document.createElement('button');
+                    btn.textContent = txt;
+                    btn.style.cssText = `font-size:10px;padding:2px 6px;background:transparent;color:${DESIGN.accent};border:1px solid ${DESIGN.border};border-radius:${DESIGN.radius};cursor:pointer;font-family:${DESIGN.fontFamily};`;
+                    btn.addEventListener('click', () => { fn(); this.saveState(); this.render(); });
+                    btns.appendChild(btn);
+                });
+                hdr.appendChild(btns);
+                wrapper.appendChild(hdr);
+
+                groups[lbl].forEach(b => {
+                    const row = document.createElement('label');
+                    row.style.cssText = `display:flex;align-items:center;gap:6px;padding:2px 0;cursor:pointer;color:${DESIGN.textDim};font-size:11px;`;
+                    const cb = document.createElement('input');
+                    cb.type = 'checkbox'; cb.checked = this.renameBuildings.has(b.id);
+                    cb.addEventListener('change', () => { if (cb.checked) this.renameBuildings.add(b.id); else this.renameBuildings.delete(b.id); this.saveState(); updateSelInfo(); this.updatePreview(); });
+                    row.appendChild(cb);
+                    row.appendChild(document.createTextNode(b.caption));
+                    wrapper.appendChild(row);
+                });
+            });
+            container.appendChild(wrapper);
+        },
+
         updatePreview() {
             if (!this._previewEl) return;
             this._previewEl.innerHTML = '';
-            const targets = this.buildings.filter(b => this.selected.has(b.id));
+            const targets = this.buildings.filter(b => this.renameBuildings.has(b.id));
             if (targets.length === 0) { this._previewEl.textContent = 'Keine Wachen ausgewählt.'; return; }
 
-            let num = 0;
-            targets.forEach(b => {
-                num++;
+            targets.forEach((b, i) => {
                 const lS = this.buildings.find(x => x.id === b.leitstelle_building_id);
+                const stadt = extractCity(b.caption);
                 const newName = applyTemplate(this.buildingTemplate, {
-                    name: b.caption,
+                    name: b.caption, alt: b.caption,
                     typ: BUILDING_TYPE_SHORT[b.building_type] || 'Geb',
-                    nummer: String(num).padStart(2, '0'),
+                    stadt: stadt, stadtkuerzel: abbrevCity(stadt),
+                    nummer: String(i + 1).padStart(2, '0'),
                     leitstelle: lS ? lS.caption : '',
                 });
                 const row = document.createElement('div');
@@ -981,43 +1111,42 @@
         },
 
         async runRename() {
-            const targets = this.buildings.filter(b => this.selected.has(b.id));
+            const targets = this.buildings.filter(b => this.renameBuildings.has(b.id));
             if (targets.length === 0) { centerToast('Keine Wachen ausgewählt.', true); return; }
 
             const buildingRenames = targets.map((b, i) => {
                 const lS = this.buildings.find(x => x.id === b.leitstelle_building_id);
+                const stadt = extractCity(b.caption);
                 const newName = applyTemplate(this.buildingTemplate, {
-                    name: b.caption,
+                    name: b.caption, alt: b.caption,
                     typ: BUILDING_TYPE_SHORT[b.building_type] || 'Geb',
+                    stadt: stadt, stadtkuerzel: abbrevCity(stadt),
                     nummer: String(i + 1).padStart(2, '0'),
                     leitstelle: lS ? lS.caption : '',
                 });
-                return { building: b, newName };
+                return { building: b, newName, stadt };
             });
 
             let vehicleRenames = [];
             if (this.alsoRenameVehicles) {
                 const vMap = await this.loadVehiclesByBuilding();
-                buildingRenames.forEach(({ building, newName }) => {
+                buildingRenames.forEach(({ building, newName, stadt }) => {
                     const vs = vMap.get(building.id) || [];
                     vs.forEach((vh, vi) => {
                         const newVName = applyTemplate(this.vehicleTemplate, {
-                            name: vh.caption,
+                            name: vh.caption, alt: vh.caption,
                             typ: (vh.caption || '').split(' ')[0] || 'Fzg',
+                            stadt: stadt, stadtkuerzel: abbrevCity(stadt),
                             nummer: String(vi + 1).padStart(2, '0'),
                             wache: newName,
                         });
-                        vehicleRenames.push({ vehicle: vh, newName: newVName });
+                        vehicleRenames.push({ vehicle: vh, newName });
                     });
                 });
             }
 
             const totalOps = buildingRenames.length + vehicleRenames.length;
-            const nameSet = new Set(); let conflict = false;
-            buildingRenames.forEach(({ newName }) => { if (nameSet.has(newName)) conflict = true; nameSet.add(newName); });
-
             let msg = `${buildingRenames.length} Wachen${vehicleRenames.length ? ' + ' + vehicleRenames.length + ' Fahrzeuge' : ''} umbenennen?`;
-            if (conflict) msg = '⚠ Mehrere Gebäude bekommen denselben Namen!\n\n' + msg;
             if (!confirm(msg)) return;
 
             this.running = true; this.abortFlag = false; this.render();
@@ -1068,7 +1197,7 @@
             this.running = false;
             await this.loadBuildings();
             this.render();
-            if (errors.length) console.warn('[LSS-Helfer] Umbenenn-Fehler:', errors);
+            if (errors.length) console.warn('[LSS-Helfer] Fehler:', errors);
             centerToast(`${ok} umbenannt${fail ? ', ' + fail + ' Fehler (Konsole)' : ''}`, fail > 0);
         },
 
@@ -1087,58 +1216,6 @@
                 }
             } catch (e) { console.error(e); }
             return map;
-        },
-
-        // ==== Gemeinsame Gebäudeliste ====
-        renderBuildingList(container) {
-            if (!this.buildingsLoaded) {
-                container.insertAdjacentHTML('beforeend', `<div style="color:${DESIGN.textDim};padding:12px;text-align:center;">Lade Gebäude…</div>`);
-                return;
-            }
-            const groups = {};
-            this.buildings.forEach(b => {
-                const lbl = BUILDING_TYPE_SHORT[b.building_type] || ('Typ ' + b.building_type);
-                if (!groups[lbl]) groups[lbl] = [];
-                groups[lbl].push(b);
-            });
-            const wrapper = document.createElement('div');
-            wrapper.style.cssText = `max-height:220px;overflow-y:auto;background:${DESIGN.bg};border:1px solid ${DESIGN.border};border-radius:${DESIGN.radius};padding:8px;`;
-            const selInfo = document.createElement('div');
-            selInfo.style.cssText = `font-weight:600;margin-bottom:6px;color:${DESIGN.text};`;
-            const updateSelInfo = () => { selInfo.textContent = 'Ausgewählt: ' + this.selected.size + ' / ' + this.buildings.length; };
-            updateSelInfo();
-            wrapper.appendChild(selInfo);
-
-            const refresh = () => { this.saveState(); updateSelInfo(); this.updatePreview && this.updatePreview(); };
-
-            Object.keys(groups).sort().forEach(lbl => {
-                const hdr = document.createElement('div');
-                hdr.style.cssText = `display:flex;align-items:center;justify-content:space-between;margin-top:8px;color:${DESIGN.text};font-size:11px;font-weight:600;`;
-                hdr.textContent = `${lbl} (${groups[lbl].length})`;
-                const btns = document.createElement('div');
-                btns.style.cssText = `display:flex;gap:4px;`;
-                [['Alle', () => groups[lbl].forEach(b => this.selected.add(b.id))], ['Keine', () => groups[lbl].forEach(b => this.selected.delete(b.id))], ['Invert.', () => groups[lbl].forEach(b => { if (this.selected.has(b.id)) this.selected.delete(b.id); else this.selected.add(b.id); })]].forEach(([txt, fn]) => {
-                    const btn = document.createElement('button');
-                    btn.textContent = txt;
-                    btn.style.cssText = `font-size:10px;padding:2px 6px;background:transparent;color:${DESIGN.accent};border:1px solid ${DESIGN.border};border-radius:${DESIGN.radius};cursor:pointer;font-family:${DESIGN.fontFamily};`;
-                    btn.addEventListener('click', () => { fn(); this.render(); });
-                    btns.appendChild(btn);
-                });
-                hdr.appendChild(btns);
-                wrapper.appendChild(hdr);
-
-                groups[lbl].forEach(b => {
-                    const row = document.createElement('label');
-                    row.style.cssText = `display:flex;align-items:center;gap:6px;padding:2px 0;cursor:pointer;color:${DESIGN.textDim};font-size:11px;`;
-                    const cb = document.createElement('input');
-                    cb.type = 'checkbox'; cb.checked = this.selected.has(b.id);
-                    cb.addEventListener('change', () => { if (cb.checked) this.selected.add(b.id); else this.selected.delete(b.id); refresh(); });
-                    row.appendChild(cb);
-                    row.appendChild(document.createTextNode(b.caption));
-                    wrapper.appendChild(row);
-                });
-            });
-            container.appendChild(wrapper);
         },
     };
 
@@ -1171,5 +1248,6 @@
     window.LSS_Helfer = {
         Registry, Store, openPanel,
         debugSprech: () => SprechModule.debugSprech(),
+        abbrevCity, extractCity,
     };
 })();
