@@ -1,15 +1,17 @@
 // ==UserScript==
 // @name         LSS-Helfer
 // @namespace    lss-helfer
-// @version      0.3.1
-// @description  Einsatzliste, Sprechwunsch-Helfer (flackerfrei, auto-hide), LSS-weite Aktionen
+// @version      0.3.2
+// @description  Einsatzliste, Sprechwunsch-Helfer, LSS-weite Aktionen (Toggles, In-Page-Modals, Sachsen-Kürzel, manuelles Werben)
 // @author       Du
 // @match        https://www.leitstellenspiel.de/*
 // @grant        none
 // @run-at       document-idle
+// @downloadURL  https://github.com/Amaan5347/LSS/lss-helfer.user.js
+// @updateURL    https://github.com/Amaan5347/LSS/lss-helfer.user.js
 // ==/UserScript==
 
-// Version: v0.3.1
+// Version: v0.3.2
 
 (function () {
     'use strict';
@@ -47,7 +49,8 @@
     // ===== STORE =====
     const MODULES_KEY = 'lssHelfer.modules';
     const FEATURES_KEY = 'lssHelfer.features';
-    const AKTION_STATE_KEY = 'lssHelfer.aktionState.v2';
+    const AKTION_STATE_KEY = 'lssHelfer.aktionState.v3';
+    const CITY_ABBREV_KEY = 'lssHelfer.cityAbbrev';
     const Store = {
         loadModules() { try { return JSON.parse(localStorage.getItem(MODULES_KEY)) || {}; } catch { return {}; } },
         setModuleActive(id, active) { const s = this.loadModules(); s[id] = !!active; try { localStorage.setItem(MODULES_KEY, JSON.stringify(s)); } catch {} },
@@ -56,6 +59,8 @@
         setFeature(m, f, v) { try { const all = JSON.parse(localStorage.getItem(FEATURES_KEY)) || {}; all[m] = all[m] || {}; all[m][f] = v; localStorage.setItem(FEATURES_KEY, JSON.stringify(all)); } catch {} },
         loadAktionState() { try { return JSON.parse(localStorage.getItem(AKTION_STATE_KEY)) || {}; } catch { return {}; } },
         saveAktionState(st) { try { localStorage.setItem(AKTION_STATE_KEY, JSON.stringify(st)); } catch {} },
+        loadCityAbbrev() { try { return JSON.parse(localStorage.getItem(CITY_ABBREV_KEY)) || {}; } catch { return {}; } },
+        saveCityAbbrev(obj) { try { localStorage.setItem(CITY_ABBREV_KEY, JSON.stringify(obj)); } catch {} },
     };
 
     // ===== REGISTRY =====
@@ -98,14 +103,35 @@
         27:'Seenot-Hubschr', 28:'Seenot-Hubschr', 29:'Autobahnpolizei',
     };
     const TYPE_WORDS = new Set(['fw','feuerwache','fw-schule','rw','rettungswache','rs','kh','krankenhaus','thw','thw-schule','pol','polizei','polizeiwache','lst','leitstelle','seg','bepo','bereitschaftspolizei','wache','schule','feuerwehrschule','rettungsschule','polizeischule','bundesschule','hubschrauber','rth','rth-station','polizeihubschrauber','wasserrettung','bergrettung','bergrettungswache','seenotrettung','seenotrettungswache','autobahnpolizei','polse','sew','nord','sued','ost','west','mitte']);
-    const CITY_ABBREV = {
-        'hamburg':'HH','berlin':'B','muenchen':'M','münchen':'M','koeln':'K','köln':'K','frankfurt':'F','stuttgart':'S',
-        'duesseldorf':'D','düsseldorf':'D','leipzig':'L','dresden':'DD','hannover':'H','bremen':'HB','nuernberg':'N','nürnberg':'N',
-        'dortmund':'DO','essen':'E','bonn':'BN','muenster':'MS','münster':'MS','karlsruhe':'KA','freiburg':'FR',
-        'mainz':'MZ','wiesbaden':'WI','kiel':'KI','luebeck':'HL','lübeck':'HL','rostock':'HRO','magdeburg':'MD',
-        'erfurt':'EF','jena':'J','halle':'HAL','augsburg':'A','regensburg':'R','wuerzburg':'WÜ','würzburg':'WÜ',
-        'krefeld':'KR','moenchengladbach':'MG','mönchengladbach':'MG','oberhausen':'OB','braunschweig':'BS',
-        'chemnitz':'C','aachen':'AC','hagen':'HA','saarbruecken':'SB','saarbrücken':'SB','potsdam':'P','ulm':'UL',
+
+    // ===== SACHSEN KFZ-KÜRZEL (erweitert) =====
+    const CITY_ABBREV_SACHSEN = {
+        // Kreisfreie Städte
+        'dresden':'DD', 'leipzig':'L', 'chemnitz':'C',
+        // Landkreise und Städte (alphabetisch)
+        'annaberg':'ANA', 'annaberg-buchholz':'ANA',
+        'auerbach':'AE', 'aue':'AU', 'aue-bad schlema':'AU',
+        'bautzen':'BZ', 'bischofswerda':'BIW', 'borna':'BNA', 'brand-erbisdorf':'BED',
+        'delitzsch':'DZ', 'dippoldiswalde':'DW', 'dobeln':'DL', 'döbeln':'DL',
+        'eilenburg':'EB', 'erzgebirge':'ERZ', 'erzgebirgskreis':'ERZ',
+        'floha':'FLÖ', 'flöha':'FLÖ', 'freiberg':'FG', 'freital':'FTL',
+        'geithain':'GHA', 'glauchau':'GC', 'gorlitz':'GR', 'görlitz':'GR',
+        'grimma':'GRM', 'grossenhain':'GRH', 'großenhain':'GRH',
+        'hainichen':'HC', 'hohenstein-ernstthal':'HOT', 'hoyerswerda':'HY',
+        'kamenz':'KM',
+        'lobau':'LÖB', 'löbau':'LÖB',
+        'marienberg':'MAB', 'meissen':'MEI', 'meißen':'MEI', 'mittweida':'MW',
+        'niesky':'NY',
+        'oschatz':'OZ',
+        'pirna':'PIR', 'plauen':'PL',
+        'reichenbach':'RC', 'riesa':'RIE', 'rochlitz':'RL',
+        'sebnitz':'SEB', 'schwarzenberg':'SZB', 'stollberg':'STL',
+        'torgau':'TG',
+        'vogtland':'V', 'vogtlandkreis':'V',
+        'werdau':'WDA', 'weisswasser':'WSW', 'weißwasser':'WSW', 'wurzen':'WUR',
+        'zittau':'ZI', 'zschopau':'ZP', 'zwickau':'Z',
+        // Auslaufende/ältere Kennzeichen
+        'asz':'ASZ', 'mek':'MEK', 'mtl':'MTL', 'ovl':'OVL', 'rg':'RG', 'to':'TO', 'tdо':'TDO',
     };
 
     function extractCity(buildingName) {
@@ -116,8 +142,13 @@
     }
     function abbrevCity(city) {
         if (!city) return '';
-        const lower = city.toLowerCase();
-        if (CITY_ABBREV[lower]) return CITY_ABBREV[lower];
+        const lower = city.toLowerCase().trim();
+        // 1. Lokale (vom Nutzer gespeicherte) Kürzel
+        const userMap = Store.loadCityAbbrev();
+        if (userMap[lower]) return userMap[lower];
+        // 2. Sachsen-Karte
+        if (CITY_ABBREV_SACHSEN[lower]) return CITY_ABBREV_SACHSEN[lower];
+        // 3. Fallback: erste 2 Buchstaben
         return city.substring(0, 2).toUpperCase();
     }
 
@@ -152,6 +183,32 @@
         setTimeout(() => el.remove(), 3000);
     }
     function hashText(s) { let h = 0; for (let i = 0; i < s.length; i++) { h = ((h << 5) - h) + s.charCodeAt(i); h |= 0; } return String(h); }
+
+    // ===== IN-PAGE MODAL (ersetzt confirm/alert) =====
+    function showModal(title, bodyEl, buttons) {
+        const overlay = document.createElement('div');
+        overlay.style.cssText = `position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.6);z-index:10002;display:flex;align-items:center;justify-content:center;`;
+        const modal = document.createElement('div');
+        modal.style.cssText = `background:${DESIGN.panel};border:1px solid ${DESIGN.border};border-radius:${DESIGN.radius};padding:20px;max-width:420px;width:90%;font-family:${DESIGN.fontFamily};font-size:${DESIGN.font};color:${DESIGN.text};box-shadow:0 8px 30px rgba(0,0,0,.7);`;
+        const titleEl = document.createElement('div');
+        titleEl.style.cssText = `font-weight:600;font-size:14px;margin-bottom:12px;color:${DESIGN.text};`;
+        titleEl.textContent = title;
+        modal.appendChild(titleEl);
+        modal.appendChild(bodyEl);
+        const btnRow = document.createElement('div');
+        btnRow.style.cssText = `display:flex;gap:8px;justify-content:flex-end;margin-top:16px;`;
+        buttons.forEach(b => {
+            const btn = document.createElement('button');
+            btn.textContent = b.label;
+            btn.style.cssText = `background:${b.primary ? DESIGN.accent : 'transparent'};color:${b.primary ? DESIGN.accentText : DESIGN.textDim};border:1px solid ${DESIGN.border};border-radius:${DESIGN.radius};padding:6px 14px;font-size:12px;cursor:pointer;font-family:${DESIGN.fontFamily};font-weight:${b.primary ? '600' : '400'};`;
+            btn.addEventListener('click', () => { overlay.remove(); if (b.action) b.action(); });
+            btnRow.appendChild(btn);
+        });
+        modal.appendChild(btnRow);
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
+        return overlay;
+    }
 
     // ===== PANELS =====
     const panels = { module: null, settings: null };
@@ -567,7 +624,6 @@
             const countStr = String(items.length);
             if (this.countEl.textContent !== countStr) this.countEl.textContent = countStr;
 
-            // Auto-Hide: Wenn nichts da, Popup unsichtbar machen (außer Hover)
             if (items.length === 0 && !this.isHover) {
                 if (this.visible) { this.popupEl.style.display = 'none'; this.visible = false; }
                 for (const [, rowData] of this.rowEls) rowData.el.remove();
@@ -710,7 +766,7 @@
     const AktionenModule = {
         id: 'lss-weite-aktionen',
         name: 'LSS-weite Aktionen',
-        description: 'Wachentypen umschalten, Werbung global, Umbenennen',
+        description: 'Wachentypen umschalten, manuelles Werben, Umbenennen',
         icon: 'ti-bolt',
         panelEl: null,
         buildings: [],
@@ -723,7 +779,7 @@
         // Zustand
         toggleTarget: 'off',
         toggleTypes: new Set(),
-        renameBuildings: new Set(),
+        renameTypes: new Set(),
         buildingTemplate: '{typ} {stadt} {nummer}',
         vehicleTemplate: '{stadtkuerzel} {typ} {nummer}',
         alsoRenameVehicles: true,
@@ -747,7 +803,7 @@
             const st = Store.loadAktionState();
             if (st.toggleTarget) this.toggleTarget = st.toggleTarget;
             if (Array.isArray(st.toggleTypes)) this.toggleTypes = new Set(st.toggleTypes);
-            if (Array.isArray(st.renameBuildings)) this.renameBuildings = new Set(st.renameBuildings);
+            if (Array.isArray(st.renameTypes)) this.renameTypes = new Set(st.renameTypes);
             if (st.buildingTemplate !== undefined) this.buildingTemplate = st.buildingTemplate;
             if (st.vehicleTemplate !== undefined) this.vehicleTemplate = st.vehicleTemplate;
             if (st.alsoRenameVehicles !== undefined) this.alsoRenameVehicles = st.alsoRenameVehicles;
@@ -756,7 +812,7 @@
             Store.saveAktionState({
                 toggleTarget: this.toggleTarget,
                 toggleTypes: Array.from(this.toggleTypes),
-                renameBuildings: Array.from(this.renameBuildings),
+                renameTypes: Array.from(this.renameTypes),
                 buildingTemplate: this.buildingTemplate,
                 vehicleTemplate: this.vehicleTemplate,
                 alsoRenameVehicles: this.alsoRenameVehicles,
@@ -824,15 +880,15 @@
             if (this.progressFill) this.progressFill.style.width = ((current / total) * 100) + '%';
         },
 
-        // ===== Werkzeug 1: Wachentypen umschalten =====
+        // ===== Werkzeug 1: Wachentypen umschalten (Toggle-Switches) =====
         renderToggle(body) {
             const info = document.createElement('div');
-            info.style.cssText = `color:${DESIGN.textDim};font-size:11px;margin-bottom:10px;line-height:1.4;`;
-            info.textContent = 'Wähle Wachentypen. Alle Wachen des gewählten Typs werden umgeschaltet. Wachen, die bereits im Zielzustand sind, werden übersprungen.';
+            info.style.cssText = `color:${DESIGN.textDim};font-size:11px;margin-bottom:12px;line-height:1.4;`;
+            info.textContent = 'Wähle Wachentypen per Toggle. Alle Wachen des Typs werden umgeschaltet. Wachen im Zielzustand werden übersprungen.';
             body.appendChild(info);
 
             const targetRow = document.createElement('div');
-            targetRow.style.cssText = `display:flex;gap:10px;margin-bottom:10px;align-items:center;`;
+            targetRow.style.cssText = `display:flex;gap:10px;margin-bottom:12px;align-items:center;`;
             targetRow.innerHTML = `<span style="color:${DESIGN.text};font-weight:600;">Ziel:</span>`;
             [{ v: 'on', l: 'Aktivieren' }, { v: 'off', l: 'Deaktivieren' }].forEach(o => {
                 const lab = document.createElement('label');
@@ -863,36 +919,32 @@
             const typeList = document.createElement('div');
             typeList.style.cssText = `background:${DESIGN.bg};border:1px solid ${DESIGN.border};border-radius:${DESIGN.radius};padding:8px;max-height:280px;overflow-y:auto;`;
 
-            const bulkRow = document.createElement('div');
-            bulkRow.style.cssText = `display:flex;gap:4px;margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid ${DESIGN.border};`;
-            [['Alle', () => Object.keys(typeStats).forEach(t => this.toggleTypes.add(parseInt(t)))],
-             ['Keine', () => this.toggleTypes.clear()],
-             ['Invertieren', () => Object.keys(typeStats).forEach(t => { const ti = parseInt(t); if (this.toggleTypes.has(ti)) this.toggleTypes.delete(ti); else this.toggleTypes.add(ti); })]].forEach(([txt, fn]) => {
-                const btn = document.createElement('button');
-                btn.textContent = txt;
-                btn.style.cssText = `font-size:10px;padding:3px 8px;background:transparent;color:${DESIGN.accent};border:1px solid ${DESIGN.border};border-radius:${DESIGN.radius};cursor:pointer;font-family:${DESIGN.fontFamily};`;
-                btn.addEventListener('click', () => { fn(); this.saveState(); this.render(); });
-                bulkRow.appendChild(btn);
-            });
-            typeList.appendChild(bulkRow);
-
             Object.keys(typeStats).map(Number).sort((a, b) => a - b).forEach(t => {
                 const s = typeStats[t];
                 const checked = this.toggleTypes.has(t);
-                const row = document.createElement('label');
-                row.style.cssText = `display:flex;align-items:center;gap:8px;padding:5px 4px;cursor:pointer;border-bottom:1px solid ${DESIGN.border};`;
-                const cb = document.createElement('input');
-                cb.type = 'checkbox'; cb.checked = checked;
-                cb.addEventListener('change', () => { if (cb.checked) this.toggleTypes.add(t); else this.toggleTypes.delete(t); this.saveState(); });
-                row.appendChild(cb);
+                const row = document.createElement('div');
+                row.style.cssText = `display:flex;align-items:center;justify-content:space-between;padding:6px 4px;border-bottom:1px solid ${DESIGN.border};`;
+                const left = document.createElement('div');
+                left.style.cssText = `display:flex;flex-direction:column;gap:2px;`;
                 const nameEl = document.createElement('span');
-                nameEl.style.cssText = `flex:1;color:${DESIGN.text};font-size:11px;`;
+                nameEl.style.cssText = `color:${DESIGN.text};font-size:12px;font-weight:500;`;
                 nameEl.textContent = BUILDING_TYPE_SHORT[t] || ('Typ ' + t);
-                row.appendChild(nameEl);
+                left.appendChild(nameEl);
                 const statEl = document.createElement('span');
                 statEl.style.cssText = `color:${DESIGN.textDim};font-size:10px;`;
-                statEl.textContent = `${s.total} (${s.enabled} aktiv, ${s.disabled} inaktiv)`;
-                row.appendChild(statEl);
+                statEl.textContent = `${s.total} Wachen (${s.enabled} aktiv, ${s.disabled} inaktiv)`;
+                left.appendChild(statEl);
+                row.appendChild(left);
+
+                const toggle = document.createElement('span');
+                toggle.style.cssText = `position:relative;display:inline-block;width:36px;height:20px;border-radius:3px;cursor:pointer;background:${checked ? DESIGN.accent : DESIGN.border};transition:background .15s;flex-shrink:0;`;
+                toggle.innerHTML = `<span style="position:absolute;top:2px;left:${checked ? 18 : 2}px;width:16px;height:16px;background:${checked ? DESIGN.accentText : DESIGN.textDim};border-radius:2px;transition:left .15s;"></span>`;
+                toggle.addEventListener('click', () => {
+                    if (this.toggleTypes.has(t)) this.toggleTypes.delete(t); else this.toggleTypes.add(t);
+                    this.saveState();
+                    this.render();
+                });
+                row.appendChild(toggle);
                 typeList.appendChild(row);
             });
             body.appendChild(typeList);
@@ -918,62 +970,75 @@
             const targets = this.buildings.filter(b => this.toggleTypes.has(b.building_type));
             const toToggle = targets.filter(b => { const isActive = b.enabled !== false; return isActive !== targetState; });
             if (toToggle.length === 0) { centerToast('Alle ausgewählten Wachen bereits im Zielzustand.', false); return; }
-            if (!confirm(`${toToggle.length} Wachen ${targetState ? 'aktivieren' : 'deaktivieren'}?`)) return;
-            this.running = true; this.abortFlag = false; this.render();
-            let ok = 0, fail = 0;
-            for (let i = 0; i < toToggle.length; i++) {
-                if (this.abortFlag) break;
-                this.updateProgress(`${i + 1}/${toToggle.length}: ${toToggle[i].caption}`, i + 1, toToggle.length);
-                try { const res = await apiGet('/buildings/' + toToggle[i].id + '/active'); if (res.ok) ok++; else fail++; }
-                catch { fail++; }
-                if (i < toToggle.length - 1) await sleep(400);
-            }
-            this.running = false;
-            await this.loadBuildings();
-            this.render();
-            centerToast(`${ok} umgeschaltet${fail ? ', ' + fail + ' Fehler' : ''}`, fail > 0);
+
+            const content = document.createElement('div');
+            content.style.cssText = `color:${DESIGN.textDim};font-size:12px;line-height:1.5;`;
+            content.textContent = `${toToggle.length} Wachen ${targetState ? 'aktivieren' : 'deaktivieren'}?`;
+            showModal('Bestätigung', content, [
+                { label: 'Abbrechen' },
+                { label: 'Ja, ausführen', primary: true, action: async () => {
+                    this.running = true; this.abortFlag = false; this.render();
+                    let ok = 0, fail = 0;
+                    for (let i = 0; i < toToggle.length; i++) {
+                        if (this.abortFlag) break;
+                        this.updateProgress(`${i + 1}/${toToggle.length}: ${toToggle[i].caption}`, i + 1, toToggle.length);
+                        try { const res = await apiGet('/buildings/' + toToggle[i].id + '/active'); if (res.ok) ok++; else fail++; }
+                        catch { fail++; }
+                        if (i < toToggle.length - 1) await sleep(400);
+                    }
+                    this.running = false;
+                    await this.loadBuildings();
+                    this.render();
+                    centerToast(`${ok} umgeschaltet${fail ? ', ' + fail + ' Fehler' : ''}`, fail > 0);
+                }},
+            ]);
         },
 
-        // ===== Werkzeug 2: Werbung (global) =====
+        // ===== Werkzeug 2: Werbung (manuell pro Wache) =====
         renderHire(body) {
             if (!this.buildingsLoaded) {
                 body.insertAdjacentHTML('beforeend', `<div style="color:${DESIGN.textDim};padding:12px;text-align:center;">Lade Gebäude…</div>`);
                 return;
             }
             const info = document.createElement('div');
-            info.style.cssText = `color:${DESIGN.text};font-size:12px;margin-bottom:12px;line-height:1.5;padding:10px;background:${DESIGN.bg};border:1px solid ${DESIGN.border};border-radius:${DESIGN.radius};`;
-            info.innerHTML = `Aktiviert <b>3 Tage Personalwerbung</b> für <b>alle ${this.buildings.length} Wachen</b>.<br><br>
-                <span style="color:${DESIGN.textDim};font-size:11px;">Bereits laufende Werbung wird serverseitig ignoriert – kein Schaden, kein zusätzlicher Credit-Abzug.</span>`;
+            info.style.cssText = `color:${DESIGN.textDim};font-size:11px;margin-bottom:12px;line-height:1.4;`;
+            info.textContent = 'Klicke „Werben“ bei einer Wache, um 3 Tage Personalwerbung manuell zu starten. Bereits laufende Werbung wird serverseitig ignoriert.';
             body.appendChild(info);
 
-            const runRow = document.createElement('div');
-            runRow.style.cssText = `margin-top:12px;`;
-            const runBtn = document.createElement('button');
-            runBtn.textContent = `Werbung für alle ${this.buildings.length} Wachen aktivieren`;
-            runBtn.style.cssText = `background:${DESIGN.accent};color:${DESIGN.accentText};border:none;border-radius:${DESIGN.radius};padding:8px 16px;font-size:12px;font-weight:600;cursor:pointer;font-family:${DESIGN.fontFamily};width:100%;`;
-            runBtn.addEventListener('click', () => this.runHire());
-            runRow.appendChild(runBtn);
-            body.appendChild(runRow);
+            const list = document.createElement('div');
+            list.style.cssText = `background:${DESIGN.bg};border:1px solid ${DESIGN.border};border-radius:${DESIGN.radius};padding:8px;max-height:360px;overflow-y:auto;`;
+
+            this.buildings.forEach(b => {
+                const row = document.createElement('div');
+                row.style.cssText = `display:flex;align-items:center;justify-content:space-between;padding:6px 4px;border-bottom:1px solid ${DESIGN.border};gap:8px;`;
+                const name = document.createElement('span');
+                name.style.cssText = `flex:1;color:${DESIGN.text};font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;`;
+                name.textContent = b.caption;
+                row.appendChild(name);
+
+                const btn = document.createElement('button');
+                btn.textContent = 'Werben';
+                btn.style.cssText = `background:transparent;color:${DESIGN.accent};border:1px solid ${DESIGN.accent};border-radius:${DESIGN.radius};padding:3px 10px;font-size:10px;font-weight:600;cursor:pointer;font-family:${DESIGN.fontFamily};flex-shrink:0;`;
+                btn.addEventListener('click', async () => {
+                    btn.disabled = true; btn.textContent = '…'; btn.style.opacity = '.5';
+                    try {
+                        const res = await apiGet('/buildings/' + b.id + '/hire_do/3');
+                        if (res.ok) {
+                            const html = await res.text();
+                            const err = detectError(html);
+                            if (err) { centerToast('Fehler: ' + err, true); btn.textContent = 'Werben'; btn.disabled = false; btn.style.opacity = ''; }
+                            else { centerToast('Werbung gestartet: ' + b.caption, false); btn.textContent = '✓'; btn.style.color = '#5a8a4a'; btn.style.borderColor = '#5a8a4a'; }
+                        } else { centerToast('HTTP ' + res.status, true); btn.textContent = 'Werben'; btn.disabled = false; btn.style.opacity = ''; }
+                    } catch (e) { centerToast('Fehler: ' + e.message, true); btn.textContent = 'Werben'; btn.disabled = false; btn.style.opacity = ''; }
+                    await sleep(400);
+                });
+                row.appendChild(btn);
+                list.appendChild(row);
+            });
+            body.appendChild(list);
         },
 
-        async runHire() {
-            const targets = this.buildings;
-            if (targets.length === 0) { centerToast('Keine Wachen vorhanden.', true); return; }
-            if (!confirm(`3 Tage Werbung für alle ${targets.length} Wachen aktivieren?`)) return;
-            this.running = true; this.abortFlag = false; this.render();
-            let ok = 0, fail = 0;
-            for (let i = 0; i < targets.length; i++) {
-                if (this.abortFlag) break;
-                this.updateProgress(`${i + 1}/${targets.length}: ${targets[i].caption}`, i + 1, targets.length);
-                try { const res = await apiGet('/buildings/' + targets[i].id + '/hire_do/3'); if (res.ok) ok++; else fail++; }
-                catch { fail++; }
-                if (i < targets.length - 1) await sleep(400);
-            }
-            this.running = false; this.render();
-            centerToast(`${ok} beworben${fail ? ', ' + fail + ' Fehler' : ''}`, fail > 0);
-        },
-
-        // ===== Werkzeug 3: Umbenennen =====
+        // ===== Werkzeug 3: Umbenennen (nur Wachentypen) =====
         renderRename(body) {
             const codeSpan = (txt) => `<span class="lsh-tpl-code">${txt}</span>`;
 
@@ -1013,11 +1078,49 @@
                 return;
             }
 
-            this.renderBuildingSelector(body);
+            const typeStats = {};
+            this.buildings.forEach(b => {
+                const t = b.building_type;
+                if (!typeStats[t]) typeStats[t] = { total: 0 };
+                typeStats[t].total++;
+            });
+
+            const typeList = document.createElement('div');
+            typeList.style.cssText = `background:${DESIGN.bg};border:1px solid ${DESIGN.border};border-radius:${DESIGN.radius};padding:8px;max-height:200px;overflow-y:auto;margin-bottom:12px;`;
+
+            Object.keys(typeStats).map(Number).sort((a, b) => a - b).forEach(t => {
+                const s = typeStats[t];
+                const checked = this.renameTypes.has(t);
+                const row = document.createElement('div');
+                row.style.cssText = `display:flex;align-items:center;justify-content:space-between;padding:6px 4px;border-bottom:1px solid ${DESIGN.border};`;
+                const left = document.createElement('div');
+                left.style.cssText = `display:flex;flex-direction:column;gap:2px;`;
+                const nameEl = document.createElement('span');
+                nameEl.style.cssText = `color:${DESIGN.text};font-size:12px;font-weight:500;`;
+                nameEl.textContent = BUILDING_TYPE_SHORT[t] || ('Typ ' + t);
+                left.appendChild(nameEl);
+                const statEl = document.createElement('span');
+                statEl.style.cssText = `color:${DESIGN.textDim};font-size:10px;`;
+                statEl.textContent = `${s.total} Wachen`;
+                left.appendChild(statEl);
+                row.appendChild(left);
+
+                const toggle = document.createElement('span');
+                toggle.style.cssText = `position:relative;display:inline-block;width:36px;height:20px;border-radius:3px;cursor:pointer;background:${checked ? DESIGN.accent : DESIGN.border};transition:background .15s;flex-shrink:0;`;
+                toggle.innerHTML = `<span style="position:absolute;top:2px;left:${checked ? 18 : 2}px;width:16px;height:16px;background:${checked ? DESIGN.accentText : DESIGN.textDim};border-radius:2px;transition:left .15s;"></span>`;
+                toggle.addEventListener('click', () => {
+                    if (this.renameTypes.has(t)) this.renameTypes.delete(t); else this.renameTypes.add(t);
+                    this.saveState();
+                    this.render();
+                });
+                row.appendChild(toggle);
+                typeList.appendChild(row);
+            });
+            body.appendChild(typeList);
 
             const previewEl = document.createElement('div');
             previewEl.className = 'lsh-preview';
-            previewEl.style.cssText = `margin-top:12px;max-height:180px;overflow-y:auto;background:${DESIGN.bg};border:1px solid ${DESIGN.border};border-radius:${DESIGN.radius};padding:8px;font-size:11px;color:${DESIGN.textDim};`;
+            previewEl.style.cssText = `max-height:180px;overflow-y:auto;background:${DESIGN.bg};border:1px solid ${DESIGN.border};border-radius:${DESIGN.radius};padding:8px;font-size:11px;color:${DESIGN.textDim};`;
             body.appendChild(previewEl);
             this._previewEl = previewEl;
 
@@ -1033,57 +1136,11 @@
             this.updatePreview();
         },
 
-        renderBuildingSelector(container) {
-            const groups = {};
-            this.buildings.forEach(b => {
-                const lbl = BUILDING_TYPE_SHORT[b.building_type] || ('Typ ' + b.building_type);
-                if (!groups[lbl]) groups[lbl] = [];
-                groups[lbl].push(b);
-            });
-            const wrapper = document.createElement('div');
-            wrapper.style.cssText = `max-height:220px;overflow-y:auto;background:${DESIGN.bg};border:1px solid ${DESIGN.border};border-radius:${DESIGN.radius};padding:8px;`;
-            const selInfo = document.createElement('div');
-            selInfo.style.cssText = `font-weight:600;margin-bottom:6px;color:${DESIGN.text};font-size:11px;`;
-            const updateSelInfo = () => { selInfo.textContent = 'Ausgewählt: ' + this.renameBuildings.size + ' / ' + this.buildings.length; };
-            updateSelInfo();
-            wrapper.appendChild(selInfo);
-
-            Object.keys(groups).sort().forEach(lbl => {
-                const hdr = document.createElement('div');
-                hdr.style.cssText = `display:flex;align-items:center;justify-content:space-between;margin-top:8px;color:${DESIGN.text};font-size:11px;font-weight:600;`;
-                hdr.textContent = `${lbl} (${groups[lbl].length})`;
-                const btns = document.createElement('div');
-                btns.style.cssText = `display:flex;gap:4px;`;
-                [['Alle', () => groups[lbl].forEach(b => this.renameBuildings.add(b.id))],
-                 ['Keine', () => groups[lbl].forEach(b => this.renameBuildings.delete(b.id))]].forEach(([txt, fn]) => {
-                    const btn = document.createElement('button');
-                    btn.textContent = txt;
-                    btn.style.cssText = `font-size:10px;padding:2px 6px;background:transparent;color:${DESIGN.accent};border:1px solid ${DESIGN.border};border-radius:${DESIGN.radius};cursor:pointer;font-family:${DESIGN.fontFamily};`;
-                    btn.addEventListener('click', () => { fn(); this.saveState(); this.render(); });
-                    btns.appendChild(btn);
-                });
-                hdr.appendChild(btns);
-                wrapper.appendChild(hdr);
-
-                groups[lbl].forEach(b => {
-                    const row = document.createElement('label');
-                    row.style.cssText = `display:flex;align-items:center;gap:6px;padding:2px 0;cursor:pointer;color:${DESIGN.textDim};font-size:11px;`;
-                    const cb = document.createElement('input');
-                    cb.type = 'checkbox'; cb.checked = this.renameBuildings.has(b.id);
-                    cb.addEventListener('change', () => { if (cb.checked) this.renameBuildings.add(b.id); else this.renameBuildings.delete(b.id); this.saveState(); updateSelInfo(); this.updatePreview(); });
-                    row.appendChild(cb);
-                    row.appendChild(document.createTextNode(b.caption));
-                    wrapper.appendChild(row);
-                });
-            });
-            container.appendChild(wrapper);
-        },
-
         updatePreview() {
             if (!this._previewEl) return;
             this._previewEl.innerHTML = '';
-            const targets = this.buildings.filter(b => this.renameBuildings.has(b.id));
-            if (targets.length === 0) { this._previewEl.textContent = 'Keine Wachen ausgewählt.'; return; }
+            const targets = this.buildings.filter(b => this.renameTypes.has(b.building_type));
+            if (targets.length === 0) { this._previewEl.textContent = 'Keine Wachentypen ausgewählt.'; return; }
 
             targets.forEach((b, i) => {
                 const lS = this.buildings.find(x => x.id === b.leitstelle_building_id);
@@ -1111,44 +1168,105 @@
         },
 
         async runRename() {
-            const targets = this.buildings.filter(b => this.renameBuildings.has(b.id));
-            if (targets.length === 0) { centerToast('Keine Wachen ausgewählt.', true); return; }
+            const targets = this.buildings.filter(b => this.renameTypes.has(b.building_type));
+            if (targets.length === 0) { centerToast('Keine Wachentypen ausgewählt.', true); return; }
 
-            const buildingRenames = targets.map((b, i) => {
-                const lS = this.buildings.find(x => x.id === b.leitstelle_building_id);
+            // Stadtkürzel-Prüfung: Unbekannte Städte → Modal
+            const unknownCities = [];
+            targets.forEach(b => {
                 const stadt = extractCity(b.caption);
-                const newName = applyTemplate(this.buildingTemplate, {
-                    name: b.caption, alt: b.caption,
-                    typ: BUILDING_TYPE_SHORT[b.building_type] || 'Geb',
-                    stadt: stadt, stadtkuerzel: abbrevCity(stadt),
-                    nummer: String(i + 1).padStart(2, '0'),
-                    leitstelle: lS ? lS.caption : '',
-                });
-                return { building: b, newName, stadt };
+                if (stadt && !CITY_ABBREV_SACHSEN[stadt.toLowerCase()] && !Store.loadCityAbbrev()[stadt.toLowerCase()]) {
+                    if (!unknownCities.includes(stadt)) unknownCities.push(stadt);
+                }
             });
 
-            let vehicleRenames = [];
-            if (this.alsoRenameVehicles) {
-                const vMap = await this.loadVehiclesByBuilding();
-                buildingRenames.forEach(({ building, newName, stadt }) => {
-                    const vs = vMap.get(building.id) || [];
-                    vs.forEach((vh, vi) => {
-                        const newVName = applyTemplate(this.vehicleTemplate, {
-                            name: vh.caption, alt: vh.caption,
-                            typ: (vh.caption || '').split(' ')[0] || 'Fzg',
-                            stadt: stadt, stadtkuerzel: abbrevCity(stadt),
-                            nummer: String(vi + 1).padStart(2, '0'),
-                            wache: newName,
-                        });
-                        vehicleRenames.push({ vehicle: vh, newName });
+            const proceed = async () => {
+                const buildingRenames = targets.map((b, i) => {
+                    const lS = this.buildings.find(x => x.id === b.leitstelle_building_id);
+                    const stadt = extractCity(b.caption);
+                    const newName = applyTemplate(this.buildingTemplate, {
+                        name: b.caption, alt: b.caption,
+                        typ: BUILDING_TYPE_SHORT[b.building_type] || 'Geb',
+                        stadt: stadt, stadtkuerzel: abbrevCity(stadt),
+                        nummer: String(i + 1).padStart(2, '0'),
+                        leitstelle: lS ? lS.caption : '',
                     });
+                    return { building: b, newName, stadt };
                 });
+
+                let vehicleRenames = [];
+                if (this.alsoRenameVehicles) {
+                    const vMap = await this.loadVehiclesByBuilding();
+                    buildingRenames.forEach(({ building, newName, stadt }) => {
+                        const vs = vMap.get(building.id) || [];
+                        vs.forEach((vh, vi) => {
+                            const newVName = applyTemplate(this.vehicleTemplate, {
+                                name: vh.caption, alt: vh.caption,
+                                typ: (vh.caption || '').split(' ')[0] || 'Fzg',
+                                stadt: stadt, stadtkuerzel: abbrevCity(stadt),
+                                nummer: String(vi + 1).padStart(2, '0'),
+                                wache: newName,
+                            });
+                            vehicleRenames.push({ vehicle: vh, newName });
+                        });
+                    });
+                }
+
+                const totalOps = buildingRenames.length + vehicleRenames.length;
+                const content = document.createElement('div');
+                content.style.cssText = `color:${DESIGN.textDim};font-size:12px;line-height:1.5;`;
+                content.textContent = `${buildingRenames.length} Wachen${vehicleRenames.length ? ' + ' + vehicleRenames.length + ' Fahrzeuge' : ''} umbenennen?`;
+                showModal('Bestätigung', content, [
+                    { label: 'Abbrechen' },
+                    { label: 'Ja, umbenennen', primary: true, action: () => this.executeRename(buildingRenames, vehicleRenames, totalOps) },
+                ]);
+            };
+
+            if (unknownCities.length > 0) {
+                this.promptCityAbbrev(unknownCities, proceed);
+            } else {
+                await proceed();
             }
+        },
 
-            const totalOps = buildingRenames.length + vehicleRenames.length;
-            let msg = `${buildingRenames.length} Wachen${vehicleRenames.length ? ' + ' + vehicleRenames.length + ' Fahrzeuge' : ''} umbenennen?`;
-            if (!confirm(msg)) return;
+        promptCityAbbrev(cities, callback) {
+            const content = document.createElement('div');
+            content.style.cssText = `color:${DESIGN.textDim};font-size:12px;line-height:1.6;`;
+            content.innerHTML = `Für folgende Städte ist kein Kürzel bekannt. Bitte gib es ein (wird für die Sitzung gespeichert):<br><br>`;
 
+            const inputs = {};
+            cities.forEach(city => {
+                const row = document.createElement('div');
+                row.style.cssText = `display:flex;align-items:center;gap:8px;margin-bottom:6px;`;
+                const label = document.createElement('span');
+                label.textContent = city + ':';
+                label.style.cssText = `color:${DESIGN.text};font-size:12px;min-width:100px;`;
+                row.appendChild(label);
+                const inp = document.createElement('input');
+                inp.type = 'text';
+                inp.placeholder = 'z.B. XY';
+                inp.maxLength = 4;
+                inp.style.cssText = `flex:1;background:${DESIGN.bg};color:${DESIGN.text};border:1px solid ${DESIGN.border};border-radius:${DESIGN.radius};padding:4px 8px;font-size:11px;font-family:${DESIGN.mono};text-transform:uppercase;`;
+                row.appendChild(inp);
+                inputs[city.toLowerCase()] = inp;
+                content.appendChild(row);
+            });
+
+            showModal('Stadtkürzel eingeben', content, [
+                { label: 'Abbrechen' },
+                { label: 'Speichern & fortfahren', primary: true, action: () => {
+                    const map = Store.loadCityAbbrev();
+                    Object.keys(inputs).forEach(city => {
+                        const val = inputs[city].value.trim().toUpperCase();
+                        if (val) map[city] = val;
+                    });
+                    Store.saveCityAbbrev(map);
+                    callback();
+                }},
+            ]);
+        },
+
+        async executeRename(buildingRenames, vehicleRenames, totalOps) {
             this.running = true; this.abortFlag = false; this.render();
             let ok = 0, fail = 0, cur = 0;
             const errors = [];
@@ -1249,5 +1367,6 @@
         Registry, Store, openPanel,
         debugSprech: () => SprechModule.debugSprech(),
         abbrevCity, extractCity,
+        cityAbbrevSachsen: CITY_ABBREV_SACHSEN,
     };
 })();
